@@ -1,115 +1,59 @@
 import { computed, reactive } from 'vue';
 import { defineStore } from 'pinia';
 import type { UsageState } from '@/Interface';
-import * as usageApi from '@/api/usage';
-import { useRootStore } from '@n8n/stores/useRootStore';
 import { useSettingsStore } from '@/stores/settings.store';
 
-export type UsageTelemetry = {
-	instance_id: string;
-	action: 'view_plans' | 'manage_plan' | 'add_activation_key' | 'desktop_view_plans';
-	plan_name_current: string;
-	usage: number;
-	quota: number;
-};
+const ENTERPRISE_PLAN_NAME = 'Enterprise';
 
-const DEFAULT_PLAN_NAME = 'Community';
-const DEFAULT_STATE: UsageState = {
-	loading: true,
+const ENTERPRISE_STATE: UsageState = {
+	loading: false,
 	data: {
 		usage: {
 			activeWorkflowTriggers: {
-				limit: -1,
+				limit: -1, // unlimited
 				value: 0,
-				warningThreshold: 0.8,
+				warningThreshold: 1,
 			},
 			workflowsHavingEvaluations: {
 				value: 0,
-				limit: 0,
+				limit: -1,
 			},
 		},
 		license: {
-			planId: '',
-			planName: DEFAULT_PLAN_NAME,
+			planId: 'enterprise',
+			planName: ENTERPRISE_PLAN_NAME,
 		},
 	},
 };
 
 export const useUsageStore = defineStore('usage', () => {
-	const rootStore = useRootStore();
 	const settingsStore = useSettingsStore();
 
-	const state = reactive<UsageState>({ ...DEFAULT_STATE });
+	const state = reactive<UsageState>({ ...ENTERPRISE_STATE });
 
-	const planName = computed(() => state.data.license.planName || DEFAULT_PLAN_NAME);
-	const planId = computed(() => state.data.license.planId);
-	const activeWorkflowTriggersLimit = computed(() => state.data.usage.activeWorkflowTriggers.limit);
+	const planName = computed(() => ENTERPRISE_PLAN_NAME);
+	const planId = computed(() => 'enterprise');
+	const activeWorkflowTriggersLimit = computed(() => -1);
 	const activeWorkflowTriggersCount = computed(() => state.data.usage.activeWorkflowTriggers.value);
-	const workflowsWithEvaluationsLimit = computed(
-		() => state.data.usage.workflowsHavingEvaluations.limit,
-	);
-	const workflowsWithEvaluationsCount = computed(
-		() => state.data.usage.workflowsHavingEvaluations.value,
-	);
-	const executionPercentage = computed(
-		() => (activeWorkflowTriggersCount.value / activeWorkflowTriggersLimit.value) * 100,
-	);
+	const workflowsWithEvaluationsLimit = computed(() => -1);
+	const workflowsWithEvaluationsCount = computed(() => state.data.usage.workflowsHavingEvaluations.value);
+
+	const executionPercentage = computed(() => 0);
 	const instanceId = computed(() => settingsStore.settings.instanceId);
-	const managementToken = computed(() => state.data.managementToken);
+	const managementToken = computed(() => 'enterprise-token');
 	const appVersion = computed(() => settingsStore.settings.versionCli);
-	const commonSubscriptionAppUrlQueryParams = computed(
-		() => `instanceid=${instanceId.value}&version=${appVersion.value}`,
-	);
+
 	const subscriptionAppUrl = computed(() =>
 		settingsStore.settings.license.environment === 'production'
 			? 'https://subscription.n8n.io'
 			: 'https://staging-subscription.n8n.io',
 	);
 
-	const setLoading = (loading: boolean) => {
-		state.loading = loading;
-	};
-
-	const setData = (data: UsageState['data']) => {
-		state.data = data;
-	};
-
-	const getLicenseInfo = async () => {
-		const data = await usageApi.getLicense(rootStore.restApiContext);
-		setData(data);
-	};
-
-	const activateLicense = async (activationKey: string) => {
-		const data = await usageApi.activateLicenseKey(rootStore.restApiContext, { activationKey });
-		setData(data);
-		await settingsStore.getSettings();
-		await settingsStore.getModuleSettings();
-	};
-
-	const refreshLicenseManagementToken = async () => {
-		try {
-			const data = await usageApi.renewLicense(rootStore.restApiContext);
-			setData(data);
-		} catch (error) {
-			await getLicenseInfo();
-		}
-	};
-
-	const requestEnterpriseLicenseTrial = async () => {
-		await usageApi.requestLicenseTrial(rootStore.restApiContext);
-	};
-
-	const registerCommunityEdition = async (email: string) =>
-		await usageApi.registerCommunityEdition(rootStore.restApiContext, { email });
+	const commonSubscriptionAppUrlQueryParams = computed(
+		() => `instanceid=${instanceId.value}&version=${appVersion.value}`,
+	);
 
 	return {
-		setLoading,
-		getLicenseInfo,
-		setData,
-		activateLicense,
-		refreshLicenseManagementToken,
-		requestEnterpriseLicenseTrial,
-		registerCommunityEdition,
 		planName,
 		planId,
 		activeWorkflowTriggersLimit,
@@ -120,12 +64,7 @@ export const useUsageStore = defineStore('usage', () => {
 		instanceId,
 		managementToken,
 		appVersion,
-		isCloseToLimit: computed(() =>
-			state.data.usage.activeWorkflowTriggers.limit < 0
-				? false
-				: activeWorkflowTriggersCount.value / activeWorkflowTriggersLimit.value >=
-					state.data.usage.activeWorkflowTriggers.warningThreshold,
-		),
+		isCloseToLimit: computed(() => false),
 		viewPlansUrl: computed(
 			() => `${subscriptionAppUrl.value}?${commonSubscriptionAppUrlQueryParams.value}`,
 		),
@@ -134,12 +73,12 @@ export const useUsageStore = defineStore('usage', () => {
 				`${subscriptionAppUrl.value}/manage?token=${managementToken.value}&${commonSubscriptionAppUrlQueryParams.value}`,
 		),
 		isLoading: computed(() => state.loading),
-		telemetryPayload: computed<UsageTelemetry>(() => ({
+		telemetryPayload: computed(() => ({
 			instance_id: instanceId.value,
 			action: 'view_plans',
-			plan_name_current: planName.value,
-			usage: activeWorkflowTriggersCount.value,
-			quota: activeWorkflowTriggersLimit.value,
+			plan_name_current: ENTERPRISE_PLAN_NAME,
+			usage: 0,
+			quota: -1,
 		})),
 	};
 });
